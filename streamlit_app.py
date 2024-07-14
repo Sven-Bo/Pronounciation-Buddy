@@ -3,8 +3,9 @@ import streamlit as st
 from ibm_watson import TextToSpeechV1
 from ibm_cloud_sdk_core.authenticators import IAMAuthenticator
 import pandas as pd
-import time
 from datetime import datetime
+from text_to_speech import initialize_elevenlabs, generate_audio
+from io import BytesIO
 
 # Set Streamlit page configuration
 st.set_page_config(
@@ -15,8 +16,9 @@ st.set_page_config(
 )
 
 # Load secrets
-API_KEY = st.secrets["api"]["API_KEY"]
-SERVICE_URL = st.secrets["api"]["SERVICE_URL"]
+API_KEY = st.secrets["api"]["IBM_API_KEY"]
+SERVICE_URL = st.secrets["api"]["IBM_SERVICE_URL"]
+ELEVENLABS_API_KEY = st.secrets["api"]["ELEVENLABS_API_KEY"]
 VOICE = "en-GB_CharlotteV3Voice"
 FORMAT = "IPA"
 
@@ -24,6 +26,9 @@ FORMAT = "IPA"
 authenticator = IAMAuthenticator(API_KEY)
 text_to_speech = TextToSpeechV1(authenticator=authenticator)
 text_to_speech.set_service_url(SERVICE_URL)
+
+# Initialize ElevenLabs client
+elevenlabs_client = initialize_elevenlabs(ELEVENLABS_API_KEY)
 
 
 # Function to get IPA pronunciation for each word
@@ -75,9 +80,13 @@ target_sound = st.selectbox(
 
 # Text area for words to ignore
 words_to_ignore_input = st.text_input(
-    "❌ Words to Ignore (comma-separated)",
+    "❌ Words to Ignore (comma-separated) [OPTIONAL]",
+    value="and, as, that",
     help="Optionally enter words to ignore, separated by commas.",
 )
+
+# Initialize variables to store results
+data = []
 
 # Process button
 if st.button("🚀 Process"):
@@ -93,12 +102,10 @@ if st.button("🚀 Process"):
         words.sort()  # Sort words alphabetically
 
         # Filter out the words to ignore
-        words_to_ignore = set(words_to_ignore_input.lower().split(","))
+        words_to_ignore = set(
+            word.strip() for word in words_to_ignore_input.lower().split(",")
+        )
         words = [word for word in words if word not in words_to_ignore]
-
-        # Initialize an empty DataFrame for storing the results
-        columns = ["Word", "IPA"]
-        df = pd.DataFrame(columns=columns)
 
         # Initialize progress bar
         progress_text = "🔄 Processing... Hang tight, this won't take long! ⏳"
@@ -111,32 +118,47 @@ if st.button("🚀 Process"):
             ipa_pronunciation = get_ipa(word)
 
             if ipa_pronunciation and target_sound in ipa_pronunciation:
-                new_row = pd.DataFrame({"Word": [word], "IPA": [ipa_pronunciation]})
-                df = pd.concat([df, new_row], ignore_index=True)
+                audio_bytes = generate_audio(elevenlabs_client, word)
+                audio_bytes.seek(0)  # Ensure the BytesIO object is at the start
+                data.append((word, ipa_pronunciation, audio_bytes))
 
             # Update progress bar
             my_bar.progress((idx + 1) / total_words, text=progress_text)
 
         my_bar.empty()
 
-        if not df.empty:
-            # Display the results
+        if data:
             st.balloons()
             st.write("🎉 IPA pronunciations with the target sound:")
-            st.dataframe(df)
+            for word, ipa, audio_bytes in data:
+                col1, col2, col3 = st.columns([1, 2, 2])
+                col1.write(word)
+                col2.write(ipa)
+                col3.audio(audio_bytes, format="audio/mp3")
+                st.divider()
 
-            st.write("📥 You can also download the data as an Excel file if needed.")
-            # Option to download the results
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = f"ipa_pronunciations_{target_sound}_{timestamp}.xlsx"
-            df.to_excel(output_file, index=False)
-            with open(output_file, "rb") as file:
+            @st.experimental_fragment
+            def download_fragment():
+                st.write(
+                    "📥 You can also download the data as an Excel file if needed."
+                )
+                # Option to download the results
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_file = f"ipa_pronunciations_{target_sound}_{timestamp}.xlsx"
+                df = pd.DataFrame(
+                    [(word, ipa) for word, ipa, _ in data], columns=["Word", "IPA"]
+                )
+                towrite = BytesIO()
+                df.to_excel(towrite, index=False, engine="xlsxwriter")
+                towrite.seek(0)
                 st.download_button(
                     label="Download Excel",
-                    data=file,
+                    data=towrite,
                     file_name=output_file,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
+
+            download_fragment()
         else:
             st.info(
                 "No words found with the target sound in the text. Please try again with a different text or target sound."
