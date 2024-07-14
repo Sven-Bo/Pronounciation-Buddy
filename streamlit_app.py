@@ -137,28 +137,22 @@ if st.button("🚀 Process"):
                 col3.audio(audio_bytes, format="audio/mp3")
                 st.divider()
 
-            @st.experimental_fragment
-            def download_fragment():
-                st.write(
-                    "📥 You can also download the data as an Excel file if needed."
-                )
-                # Option to download the results
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_file = f"ipa_pronunciations_{target_sound}_{timestamp}.xlsx"
-                df = pd.DataFrame(
-                    [(word, ipa) for word, ipa, _ in data], columns=["Word", "IPA"]
-                )
-                towrite = BytesIO()
-                df.to_excel(towrite, index=False, engine="xlsxwriter")
-                towrite.seek(0)
-                st.download_button(
-                    label="Download Excel",
-                    data=towrite,
-                    file_name=output_file,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-
-            download_fragment()
+            st.write("📥 You can also download the data as an Excel file if needed.")
+            # Option to download the results
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = f"ipa_pronunciations_{target_sound}_{timestamp}.xlsx"
+            df = pd.DataFrame(
+                [(word, ipa) for word, ipa, _ in data], columns=["Word", "IPA"]
+            )
+            towrite = BytesIO()
+            df.to_excel(towrite, index=False, engine="xlsxwriter")
+            towrite.seek(0)
+            st.download_button(
+                label="Download Excel",
+                data=towrite,
+                file_name=output_file,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
         else:
             st.info(
                 "No words found with the target sound in the text. Please try again with a different text or target sound."
